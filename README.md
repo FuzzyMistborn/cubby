@@ -1,6 +1,6 @@
 # Cubby
 
-<img src="logo.png" alt="Cubby logo" width="120">
+<img src="docs/logo-readme.png" alt="Cubby logo" width="240">
 
 A simple Android home-screen launcher for kids' tablets. Runs alongside Google Family Link:
 Family Link does the enforcement (app approval, time limits), this does the friendly home screen.
