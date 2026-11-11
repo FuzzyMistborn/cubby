@@ -31,6 +31,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         prefs = Prefs(this)
+        // A rotation recreates the activity; keep the parent screen open through it.
+        if (savedInstanceState?.getBoolean(KEY_PARENT) == true) screen = Screen.PARENT
         setContent {
             MaterialTheme {
                 LauncherRoot(
@@ -60,11 +62,21 @@ class MainActivity : ComponentActivity() {
         leaveCount++
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(KEY_PARENT, screen == Screen.PARENT)
+    }
+
     // Never leave the parent screen open behind a different app.
     override fun onStop() {
         super.onStop()
-        if (pickerOpen) return
+        // Rotation (and other config changes) also stops the activity but isn't leaving.
+        if (pickerOpen || isChangingConfigurations) return
         changeScreen(Screen.HOME)
         leaveCount++
+    }
+
+    private companion object {
+        const val KEY_PARENT = "parent_screen"
     }
 }
