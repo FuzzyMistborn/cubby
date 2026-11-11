@@ -64,17 +64,14 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          VERSION_ARGS="-PversionName=${{ steps.version.outputs.name }} -PversionCode=${{ steps.version.outputs.code }}"
           if [ -n "$KEYSTORE_FILE" ]; then
-            echo "$KEYSTORE_FILE" | base64 --decode > keystore.jks
-            ./gradlew testDebugUnitTest assembleRelease $VERSION_ARGS \
-              -Pandroid.injected.signing.store.file="$PWD/keystore.jks" \
-              -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
-              -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
-              -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
+            echo "$KEYSTORE_FILE" | base64 --decode > "$RUNNER_TEMP/keystore.jks"
+            export KEYSTORE_PATH="$RUNNER_TEMP/keystore.jks"
           else
-            ./gradlew testDebugUnitTest assembleRelease $VERSION_ARGS
+            echo "::warning::No signing secrets set; the release APK will be unsigned"
           fi
+          ./gradlew testDebugUnitTest assembleRelease \
+            -PversionName=${{ steps.version.outputs.name }} -PversionCode=${{ steps.version.outputs.code }}
 
       - name: Upload APK to release
         uses: softprops/action-gh-release@v3
