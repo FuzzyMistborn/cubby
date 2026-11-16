@@ -27,6 +27,10 @@ Family Link does enforcement; this app is only the friendly layer. See README.md
 - `Background.kt`: `HomeBackground` (system wallpaper, gradient presets, `PHOTO`) and the photo store
   (`filesDir/home_background.jpg`, downscaled to 2048px). Backups carry only the name; a restored `PHOTO`
   with no file falls back to the system wallpaper.
+- `TempAccess.kt`: pure helpers for timed allowances of hidden apps (`Prefs.tempAllowed`, package to
+  wall-clock expiry; not in backups). `LauncherRoot` re-hides expired ones on every `leaveCount` bump and
+  on a 30s poll. A manual show/hide on the parent screen cancels the timer. Wall clock, so a changed
+  date can extend an allowance (Family Link normally locks the clock).
 - `MainActivity.kt`: starts the parent grace window in `changeScreen` (the moment the parent leaves, not from a
   composition effect, which can be deferred while hidden). Skips the stop-reset while a backup/restore file
   picker is open (`pickerOpen`), so those flows stay on the parent screen. Bumps `leaveCount` on stop/new intent; `LauncherRoot` and `HomeScreen` use it to
