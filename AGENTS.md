@@ -31,6 +31,10 @@ Family Link does enforcement; this app is only the friendly layer. See README.md
   wall-clock expiry; not in backups). `LauncherRoot` re-hides expired ones on every `leaveCount` bump and
   on a 30s poll. A manual show/hide on the parent screen cancels the timer. Wall clock, so a changed
   date can extend an allowance (Family Link normally locks the clock).
+- `Network.kt`: Wi-Fi state (`wifiConnected`, `watchWifi`). `Prefs.wifiOnlyApps` (in backups) are hidden while
+  off Wi-Fi: `LauncherRoot` uses `effectiveHidden = hidden + wifiOnly` for visible apps and `reconcile` (so
+  search and the stash behave as for hidden apps), while the parent screen keeps showing `hidden`. Going
+  offline is debounced 3s; coming back is immediate. Wi-Fi only, not mobile data or validated internet.
 - `MainActivity.kt`: starts the parent grace window in `changeScreen` (the moment the parent leaves, not from a
   composition effect, which can be deferred while hidden). Skips the stop-reset while a backup/restore file
   picker is open (`pickerOpen`), so those flows stay on the parent screen. Bumps `leaveCount` on stop/new intent; `LauncherRoot` and `HomeScreen` use it to
