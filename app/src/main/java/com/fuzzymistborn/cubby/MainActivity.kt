@@ -1,11 +1,14 @@
 package com.fuzzymistborn.cubby
 
 import android.content.Intent
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +37,18 @@ class MainActivity : ComponentActivity() {
         // A rotation recreates the activity; keep the parent screen open through it.
         if (savedInstanceState?.getBoolean(KEY_PARENT) == true) screen = Screen.PARENT
         setContent {
+            // The kid home sits on the wallpaper, so the status bar needs light icons; the parent
+            // screen has a light background and needs dark ones.
+            val onParent = screen == Screen.PARENT
+            DisposableEffect(onParent) {
+                val bar = if (onParent) {
+                    SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+                } else {
+                    SystemBarStyle.dark(Color.TRANSPARENT)
+                }
+                enableEdgeToEdge(statusBarStyle = bar, navigationBarStyle = bar)
+                onDispose { }
+            }
             MaterialTheme {
                 LauncherRoot(
                     prefs = prefs,
