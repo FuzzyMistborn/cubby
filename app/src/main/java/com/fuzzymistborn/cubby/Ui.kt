@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import android.content.Intent
 import android.content.IntentFilter
 import android.provider.Settings
+import android.text.format.DateFormat
 import android.text.format.DateUtils
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -63,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
+import java.util.Date
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -85,6 +87,7 @@ fun LauncherRoot(
     var apps by remember { mutableStateOf<List<AppEntry>?>(null) }
     var reloadTick by remember { mutableIntStateOf(0) }
     var hidden by remember { mutableStateOf(prefs.hiddenApps) }
+    var tempAllowed by remember { mutableStateOf(prefs.tempAllowed) }
     var layoutLocked by remember { mutableStateOf(prefs.layoutLocked) }
     var favoritesEnabled by remember { mutableStateOf(prefs.favoritesEnabled) }
     var hideNewApps by remember { mutableStateOf(prefs.hideNewApps) }
@@ -220,6 +223,24 @@ fun LauncherRoot(
         }
     }
 
+    // Re-hide apps whose temporary allowance has run out. Re-checked whenever the launcher is
+    // left and re-entered, and every half minute while waiting (delay doesn't run in deep sleep).
+    LaunchedEffect(tempAllowed, leaveCount) {
+        while (tempAllowed.isNotEmpty()) {
+            val now = System.currentTimeMillis()
+            val done = TempAccess.expired(tempAllowed, now)
+            if (done.isNotEmpty()) {
+                tempAllowed = tempAllowed - done
+                hidden = hidden + done
+                prefs.tempAllowed = tempAllowed
+                prefs.hiddenApps = hidden
+                return@LaunchedEffect
+            }
+            val next = TempAccess.nextExpiry(tempAllowed) ?: return@LaunchedEffect
+            delay((next - now).coerceIn(1_000L, 30_000L))
+        }
+    }
+
     // Leaving the launcher closes any half-finished PIN dialog.
     LaunchedEffect(leaveCount) {
         pinDialog = null
@@ -337,7 +358,19 @@ fun LauncherRoot(
                     onPickerOpen(true)
                     importPicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
                 },
+                tempAllowed = tempAllowed,
+                onAllowUntil = { pkg, until ->
+                    hidden = hidden - pkg
+                    pending = pending - pkg
+                    tempAllowed = tempAllowed + (pkg to until)
+                    prefs.hiddenApps = hidden
+                    prefs.pendingApps = pending
+                    prefs.tempAllowed = tempAllowed
+                },
                 onSetVisible = { pkgs, visible ->
+                    // A manual choice replaces any timed allowance.
+                    tempAllowed = tempAllowed - pkgs
+                    prefs.tempAllowed = tempAllowed
                     hidden = if (visible) hidden - pkgs else hidden + pkgs
                     pending = pending - pkgs
                     prefs.hiddenApps = hidden
@@ -379,6 +412,8 @@ fun LauncherRoot(
                     background = HomeBackground.fromName(b.background)
                         .takeIf { it != HomeBackground.PHOTO || hasBackgroundPhoto(context) } ?: HomeBackground.SYSTEM
                     pending = emptySet()
+                    tempAllowed = emptyMap()
+                    prefs.tempAllowed = tempAllowed
                     prefs.hiddenApps = hidden
                     prefs.layoutLocked = layoutLocked
                     prefs.favoritesEnabled = favoritesEnabled
@@ -528,6 +563,8 @@ private fun ParentScreen(
     onResetLayout: () -> Unit,
     onExport: () -> Unit,
     onImport: () -> Unit,
+    tempAllowed: Map<String, Long>,
+    onAllowUntil: (String, Long) -> Unit,
     onSetVisible: (Set<String>, Boolean) -> Unit,
     failedAttempts: Int,
     lastFailedAt: Long,
@@ -537,6 +574,7 @@ private fun ParentScreen(
     onDone: () -> Unit,
 ) {
     var confirmReset by remember { mutableStateOf(false) }
+    var allowFor by remember { mutableStateOf<AppEntry?>(null) }
     var query by remember { mutableStateOf("") }
     val shown = remember(apps, query) {
         apps.filter { it.label.contains(query.trim(), ignoreCase = true) }
@@ -694,12 +732,43 @@ private fun ParentScreen(
                     if (app.packageName in pending) {
                         Text("New", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                     }
+                    val until = tempAllowed[app.packageName]
+                    if (until != null) {
+                        Text(
+                            "until ${DateFormat.getTimeFormat(LocalContext.current).format(Date(until))}",
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                    } else if (app.packageName in hidden) {
+                        TextButton(onClick = { allowFor = app }) { Text("Allow for…") }
+                    }
                     Switch(
                         checked = app.packageName !in hidden,
                         onCheckedChange = { onSetVisible(setOf(app.packageName), it) },
                     )
                 }
             }
+        }
+        allowFor?.let { app ->
+            AlertDialog(
+                onDismissRequest = { allowFor = null },
+                title = { Text("Allow ${app.label} for…") },
+                text = { Text("It shows up on the home screen, then hides itself again.") },
+                confirmButton = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf("1 hour" to 1L, "4 hours" to 4L, "Rest of today" to 0L).forEach { (label, hours) ->
+                            TextButton(onClick = {
+                                allowFor = null
+                                val now = System.currentTimeMillis()
+                                onAllowUntil(
+                                    app.packageName,
+                                    if (hours == 0L) TempAccess.endOfDay(now) else now + hours * TempAccess.HOUR_MS,
+                                )
+                            }) { Text(label) }
+                        }
+                    }
+                },
+                dismissButton = { TextButton(onClick = { allowFor = null }) { Text("Cancel") } },
+            )
         }
         if (confirmReset) {
             AlertDialog(

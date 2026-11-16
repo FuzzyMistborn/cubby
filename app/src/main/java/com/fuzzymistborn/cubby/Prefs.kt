@@ -29,6 +29,11 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_LAYOUT, null)?.let(Layout::fromJson)
         set(value) = sp.edit().putString(KEY_LAYOUT, value?.toJson()).apply()
 
+    /** Hidden apps a parent has allowed for a while: package to wall-clock expiry (epoch millis). */
+    var tempAllowed: Map<String, Long>
+        get() = TempAccess.decode(sp.getStringSet(KEY_TEMP_ALLOWED, emptySet()) ?: emptySet())
+        set(value) = sp.edit().putStringSet(KEY_TEMP_ALLOWED, TempAccess.encode(value)).apply()
+
     /** When true, kids can't rearrange the home screen. */
     var layoutLocked: Boolean
         get() = sp.getBoolean(KEY_LAYOUT_LOCKED, false)
@@ -187,6 +192,7 @@ class Prefs(context: Context) {
         const val KEY_PARENT_TIMEOUT = "parent_timeout_min"
         const val DEFAULT_PARENT_TIMEOUT_MIN = 5
         const val KEY_HIDDEN = "hidden_apps"
+        const val KEY_TEMP_ALLOWED = "temp_allowed"
         const val KEY_LAYOUT = "layout"
         const val KEY_LAYOUT_LOCKED = "layout_locked"
         const val KEY_FAVORITES = "favorites_enabled"
