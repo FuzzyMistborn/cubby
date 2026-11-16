@@ -315,6 +315,8 @@ fun LauncherRoot(
                     favoritesEnabled = favoritesEnabled,
                     locked = false,
                     tileColor = tileColor,
+                    background = background,
+                    photo = photo,
                     searchEnabled = false,
                     resetKey = leaveCount,
                     onLayoutChange = ::saveLayout,
