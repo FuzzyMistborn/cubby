@@ -46,6 +46,7 @@ Minimum Android version is 10 (API 29).
 - PIN stored as a salted PBKDF2 hash; escalating lockout after 5 wrong tries that survives clock
   changes and restarts.
 - A PIN must exist before the launcher is usable.
+- The parent screen tells you how many wrong PIN tries happened since you last checked, and when.
 - The parent screen, PIN dialogs and edit mode close themselves whenever the launcher is left.
 - Apps that are hidden, disabled, suspended or briefly missing keep their place in the layout.
 - Layout is stored per tablet; there is no sync.

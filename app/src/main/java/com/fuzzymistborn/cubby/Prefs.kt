@@ -137,6 +137,16 @@ class Prefs(context: Context) {
         return left.coerceAtMost(delay)
     }
 
+    /** Wrong PIN guesses since a parent last dismissed the notice (unlike [KEY_FAILS], survives a right PIN). */
+    val unseenFailedAttempts: Int get() = sp.getInt(KEY_UNSEEN_FAILS, 0)
+
+    /** Wall-clock time of the latest wrong guess, for display only; 0 if none. */
+    val lastFailedAttemptAt: Long get() = sp.getLong(KEY_LAST_FAIL_AT, 0L)
+
+    fun clearFailedAttempts() {
+        sp.edit().putInt(KEY_UNSEEN_FAILS, 0).putLong(KEY_LAST_FAIL_AT, 0L).apply()
+    }
+
     /** Does PBKDF2 work: call off the main thread. */
     fun verifyPin(pin: String): Boolean {
         if (lockoutRemainingMs() > 0) return false
@@ -148,6 +158,8 @@ class Prefs(context: Context) {
         } else {
             val fails = sp.getInt(KEY_FAILS, 0) + 1
             val editor = sp.edit().putInt(KEY_FAILS, fails)
+                .putInt(KEY_UNSEEN_FAILS, sp.getInt(KEY_UNSEEN_FAILS, 0) + 1)
+                .putLong(KEY_LAST_FAIL_AT, System.currentTimeMillis())
             if (fails >= FREE_ATTEMPTS) {
                 val step = (fails - FREE_ATTEMPTS).coerceAtMost(5)
                 val delay = (30_000L shl step).coerceAtMost(MAX_LOCK_MS)
@@ -182,6 +194,8 @@ class Prefs(context: Context) {
         const val KEY_PIN_HASH = "pin_hash"
         const val KEY_PIN_SALT = "pin_salt"
         const val KEY_FAILS = "pin_fails"
+        const val KEY_UNSEEN_FAILS = "pin_unseen_fails"
+        const val KEY_LAST_FAIL_AT = "pin_last_fail_at"
         const val KEY_LOCK_UNTIL = "pin_lock_until"
         const val KEY_LOCK_DELAY = "pin_lock_delay"
         const val KEY_LOCK_BOOT = "pin_lock_boot"
