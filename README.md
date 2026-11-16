@@ -39,6 +39,8 @@ Minimum Android version is 10 (API 29).
 - Choose which apps the kids can see; show all / hide all, with search.
 - Allow a hidden app for 1 hour, 4 hours or the rest of the day; it hides itself again afterwards.
 - Hide newly installed apps until approved (they show as "New" in the list).
+- Pin up to 6 apps to the start of page 1 (kids can't move them), and arrange the home screen yourself
+  with "Arrange home screen", which uses the same drag editor.
 - Lock the layout so kids can't rearrange, or reset it to one alphabetical page.
 - Back up and restore layout, hidden apps and settings to a file (the PIN is never included).
 - Change the PIN, "Switch launcher" shortcut, and choose how long the parent screen skips the PIN

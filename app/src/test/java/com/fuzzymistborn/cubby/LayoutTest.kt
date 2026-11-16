@@ -275,4 +275,53 @@ class LayoutTest {
         val one = l.removeFromFolder(FOLDER_PREFIX + "f1", "a")
         assertEquals(setOf("b"), one.lockedApps())
     }
+
+    @Test
+    fun pinnedAppsStayFirstAndCantBeMergedOrDisplaced() {
+        val l = Layout.stock(listOf("a", "b", "c", "d")).pin("c").pin("b")
+        assertEquals(apps("c", "b", "a", "d"), l.pages.single())
+        assertEquals(listOf("c", "b"), l.pinned)
+        // Moving another app to the front is pulled back behind the pinned block.
+        assertEquals(apps("c", "b", "d", "a"), l.move("d", Dest.Page(0, 0)).enforcePinned().pages.single())
+        // Nothing merges into, or out of, a pinned app.
+        assertEquals(l, l.mergeInto("a", "c"))
+        assertEquals(l, l.mergeInto("c", "a"))
+    }
+
+    @Test
+    fun parentDragAmongPinnedAppsChangesTheirOrder() {
+        val l = Layout.stock(listOf("a", "b", "c")).pin("a").pin("b")
+        val moved = l.move("b", Dest.Page(0, 0)).enforcePinned(reorder = true)
+        assertEquals(listOf("b", "a"), moved.pinned)
+        assertEquals(apps("b", "a", "c"), moved.pages.single())
+    }
+
+    @Test
+    fun pinTakesAppsOutOfFoldersAndFavoritesButNotLockedFolders() {
+        val folder = Layout.stock(abc).mergeInto("a", "b") { "f1" }
+        assertEquals(listOf("a"), folder.pin("a").pinned)
+        assertEquals(Item.App("a"), folder.pin("a").pages.single().first())
+        val locked = folder.setFolderLocked(FOLDER_PREFIX + "f1", true)
+        assertEquals(locked, locked.pin("a"))
+        val fav = Layout(listOf(apps("a", "b")), favorites = listOf("c")).pin("c")
+        assertEquals(emptyList<String>(), fav.favorites)
+        assertEquals(apps("c", "a", "b"), fav.pages.single())
+    }
+
+    @Test
+    fun pinsSurviveJsonAndReconcileButNotUninstall() {
+        val l = Layout.stock(abc).pin("b")
+        assertEquals(l, Layout.fromJson(l.toJson()))
+        assertEquals(listOf("b"), l.reconcile(abc, setOf("b")).pinned)
+        assertEquals(emptyList<String>(), l.reconcile(listOf("a", "c")).pinned)
+        // Unhiding puts it back at the front.
+        assertEquals(apps("b", "a", "c"), l.reconcile(abc, setOf("b")).reconcile(abc).pages.single())
+    }
+
+    @Test
+    fun pinStopsAtTheLimit() {
+        val many = (1..8).map { "p$it" }
+        val l = many.fold(Layout.stock(many)) { acc, p -> acc.pin(p) }
+        assertEquals(MAX_PINNED, l.pinned.size)
+    }
 }

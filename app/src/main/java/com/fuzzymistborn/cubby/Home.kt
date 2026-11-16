@@ -183,6 +183,9 @@ fun HomeScreen(
     onLaunch: (String) -> Unit,
     onRequestPin: (action: () -> Unit) -> Unit,
     onParent: () -> Unit,
+    // A parent arranging the home screen: edit mode is on from the start, pinned apps can be moved,
+    // and Done (or Back) calls onParent to return to the parent screen.
+    parentMode: Boolean = false,
 ) {
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
@@ -204,7 +207,7 @@ fun HomeScreen(
     val grid = remember(pagerSize, density) { gridSpec(pagerSize, density) }
     val currentCapacity by rememberUpdatedState(grid?.capacity ?: 0)
     fun applyLayout(next: Layout) {
-        val paged = next.paginate(currentCapacity)
+        val paged = next.enforcePinned(reorder = parentMode).paginate(currentCapacity)
         latest.value = paged
         currentOnChange(paged)
     }
@@ -217,11 +220,11 @@ fun HomeScreen(
         var next = latest.value
         if (lastCapacity in 1 until capacity) next = next.expand(lastCapacity, capacity)
         if (capacity > 0) lastCapacity = capacity
-        val paged = next.paginate(capacity)
+        val paged = next.enforcePinned(reorder = parentMode).paginate(capacity)
         if (paged != latest.value) applyLayout(paged)
     }
 
-    var editing by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(parentMode) }
     var searching by remember { mutableStateOf(false) }
     var drag by remember { mutableStateOf<DragState?>(null) }
     var mergeTarget by remember { mutableStateOf<String?>(null) }
@@ -233,11 +236,11 @@ fun HomeScreen(
     val tracked = remember { HashMap<String, Tracked>() }
     val pager = rememberPagerState { layout.pages.size }
 
-    BackHandler(enabled = editing) { editing = false }
+    BackHandler(enabled = editing) { if (parentMode) onParent() else editing = false }
 
     // Leaving the launcher ends edit mode and closes whatever was open.
     LaunchedEffect(resetKey) {
-        editing = false
+        editing = parentMode
         searching = false
         drag = null
         dockActive = false
@@ -403,6 +406,8 @@ fun HomeScreen(
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                     val startKey = hit(down.position + origin, null) ?: return@awaitEachGesture
+                    // Pinned apps are the parent's to move.
+                    if (!parentMode && startKey in latest.value.pinned) return@awaitEachGesture
                     val startRect = tracked.getValue(startKey).rect
                     val slop = viewConfiguration.touchSlop
                     val moved = withTimeoutOrNull(longPressMs) {
@@ -432,7 +437,7 @@ fun HomeScreen(
                     drag = null
                     dockActive = false
                     mergeTarget = null
-                    val settled = latest.value.normalize().paginate(currentCapacity)
+                    val settled = latest.value.normalize().enforcePinned(reorder = parentMode).paginate(currentCapacity)
                     if (settled != latest.value) applyLayout(settled)
                     // Dropping can remove an emptied page; follow the dropped item to its new index.
                     val page = settled.pageOf(startKey)
@@ -535,7 +540,11 @@ fun HomeScreen(
             ) {
                 if (editing) {
                     Text(
-                        "Drag apps to move them. Drop one on another to make a folder.",
+                        if (parentMode) {
+                            "Arranging as a parent. Pinned apps stay first on page 1 and kids can't move them."
+                        } else {
+                            "Drag apps to move them. Drop one on another to make a folder."
+                        },
                         color = Color.White,
                         style = MaterialTheme.typography.titleSmall,
                         modifier = Modifier.weight(1f).padding(start = 16.dp),
@@ -547,10 +556,10 @@ fun HomeScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         // A reset would dissolve locked folders, so it moves to the parent screen.
-                        if (layout.lockedApps().isEmpty()) {
+                        if (parentMode || layout.lockedApps().isEmpty()) {
                             OutlinedButton(onClick = { confirmReset = true }) { Text("Reset", color = Color.White) }
                         }
-                        Button(onClick = { editing = false }) { Text("Done") }
+                        Button(onClick = { if (parentMode) onParent() else editing = false }) { Text("Done") }
                     }
                 } else {
                     Box(Modifier.weight(1f))
@@ -676,7 +685,7 @@ fun HomeScreen(
             onDismissRequest = { confirmReset = false },
             title = { Text("Reset the home screen?") },
             text = {
-                Text("Every app goes back to one page in alphabetical order. Folders and favorites are removed.")
+                Text("Every app goes back to one page in alphabetical order, apart from pinned apps, which stay first. Folders and favorites are removed.")
             },
             confirmButton = {
                 TextButton(onClick = {
