@@ -103,6 +103,7 @@ fun LauncherRoot(
     var onboarding by remember { mutableStateOf(!prefs.onboardingDone) }
     var pending by remember { mutableStateOf(prefs.pendingApps) }
     var layout by remember { mutableStateOf(prefs.layout ?: Layout()) }
+    var arranging by remember { mutableStateOf(false) }
     var pinDialog by remember { mutableStateOf<PinDialogMode?>(null) }
     var hasPin by remember { mutableStateOf(prefs.hasPin()) }
     var pinBusy by remember { mutableStateOf(false) }
@@ -246,6 +247,7 @@ fun LauncherRoot(
         pinDialog = null
         pinAction = null
         pendingImport = null
+        arranging = false
     }
 
     // Keep the grid current when apps are installed, removed or updated.
@@ -295,7 +297,7 @@ fun LauncherRoot(
                 searchEnabled = searchEnabled,
                 resetKey = leaveCount,
                 onLayoutChange = ::saveLayout,
-                onResetLayout = { saveLayout(Layout.stock(visiblePkgs)) },
+                onResetLayout = { saveLayout(layout.resetKeepingPins(visiblePkgs)) },
                 onLaunch = { launchApp(context, it) },
                 onRequestPin = { action ->
                     pinAction = action
@@ -306,7 +308,26 @@ fun LauncherRoot(
                 },
             )
 
-            Screen.PARENT -> ParentScreen(
+            Screen.PARENT -> if (arranging) {
+                HomeScreen(
+                    apps = visibleApps,
+                    layout = layout,
+                    favoritesEnabled = favoritesEnabled,
+                    locked = false,
+                    tileColor = tileColor,
+                    searchEnabled = false,
+                    resetKey = leaveCount,
+                    onLayoutChange = ::saveLayout,
+                    onResetLayout = { saveLayout(layout.resetKeepingPins(visiblePkgs)) },
+                    onLaunch = {},
+                    onRequestPin = { action ->
+                        pinAction = action
+                        pinDialog = PinDialogMode.ACTION
+                    },
+                    onParent = { arranging = false },
+                    parentMode = true,
+                )
+            } else ParentScreen(
                 apps = allApps,
                 hidden = hidden,
                 pending = pending,
@@ -383,6 +404,18 @@ fun LauncherRoot(
                     failedAttempts = 0
                     lastFailedAt = 0L
                 },
+                pinned = layout.pinned,
+                onTogglePin = { pkg ->
+                    val next = if (pkg in layout.pinned) layout.unpin(pkg) else layout.pin(pkg)
+                    if (next == layout) {
+                        Toast.makeText(
+                            context, "Can't pin that (limit $MAX_PINNED, or it's in a locked folder)", Toast.LENGTH_SHORT,
+                        ).show()
+                    } else {
+                        saveLayout(next)
+                    }
+                },
+                onArrange = { arranging = true },
                 onChangePin = { pinDialog = PinDialogMode.CHANGE },
                 onSwitchLauncher = {
                     context.startActivity(
@@ -569,6 +602,9 @@ private fun ParentScreen(
     failedAttempts: Int,
     lastFailedAt: Long,
     onDismissAttempts: () -> Unit,
+    pinned: List<String>,
+    onTogglePin: (String) -> Unit,
+    onArrange: () -> Unit,
     onChangePin: () -> Unit,
     onSwitchLauncher: () -> Unit,
     onDone: () -> Unit,
@@ -699,6 +735,7 @@ private fun ParentScreen(
                         Modifier.padding(vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
+                        OutlinedButton(onClick = onArrange) { Text("Arrange home screen") }
                         OutlinedButton(onClick = { confirmReset = true }) { Text("Reset layout to default") }
                         OutlinedButton(onClick = onExport) { Text("Back up") }
                         OutlinedButton(onClick = onImport) { Text("Restore") }
@@ -740,6 +777,9 @@ private fun ParentScreen(
                         )
                     } else if (app.packageName in hidden) {
                         TextButton(onClick = { allowFor = app }) { Text("Allow for…") }
+                    } else {
+                        val isPinned = app.packageName in pinned
+                        TextButton(onClick = { onTogglePin(app.packageName) }) { Text(if (isPinned) "Unpin" else "Pin") }
                     }
                     Switch(
                         checked = app.packageName !in hidden,
@@ -775,7 +815,7 @@ private fun ParentScreen(
                 onDismissRequest = { confirmReset = false },
                 title = { Text("Reset the layout?") },
                 text = {
-                    Text("Every app goes back to one page in alphabetical order. Folders and favorites are removed.")
+                    Text("Every app goes back to one page in alphabetical order, apart from pinned apps, which stay first. Folders and favorites are removed.")
                 },
                 confirmButton = {
                     TextButton(onClick = {

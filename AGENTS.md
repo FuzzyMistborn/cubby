@@ -113,6 +113,11 @@ Family Link does enforcement; this app is only the friendly layer. See README.md
   Lock is set from the folder dialog in edit mode (PIN first); "Remove lock" shows once it is open.
   Apps in locked folders are filtered out of search, nothing can be dropped into one, a locked
   one-app folder is not dissolved, and the kid-side Reset button is hidden while any exist.
+- Pinned apps (`Layout.pinned`, max `MAX_PINNED`, in layout JSON so in backups): `enforcePinned()` keeps them
+  first on page 1 and runs in `reconcile` and `applyLayout` (before `paginate`). Kids can't start a drag on
+  one or merge into/out of one. Parent "Arrange home screen" is `HomeScreen(parentMode = true)` shown
+  from `LauncherRoot` while on the parent screen; there `enforcePinned(reorder = true)` lets a drag
+  among pinned apps set their order. Reset keeps pins (`resetKeepingPins`).
 - Folders hold apps only (no nesting), favorites hold apps only (max 6). One-app folders dissolve
   and empty pages are removed on drop (`normalize`).
 

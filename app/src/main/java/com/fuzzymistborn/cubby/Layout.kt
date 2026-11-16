@@ -8,6 +8,8 @@ import java.util.UUID
 const val FOLDER_PREFIX = "folder:"
 const val DEFAULT_FOLDER_NAME = "Folder"
 const val MAX_FAVORITES = 6
+/** Pinned apps all live on the first page, so keep them well within one screenful. */
+const val MAX_PINNED = 6
 
 /** How many uninstalled or disabled apps keep a remembered spot before the oldest are forgotten. */
 const val MAX_MISSING_STASH = 64
@@ -52,6 +54,8 @@ data class Layout(
     val pages: List<List<Item>> = listOf(emptyList()),
     val favorites: List<String> = emptyList(),
     val stash: Map<String, Spot> = emptyMap(),
+    /** Apps a parent pinned: kept, in this order, at the start of page 1 where kids can't move them. */
+    val pinned: List<String> = emptyList(),
 ) {
     fun item(key: String): Item? =
         if (key in favorites) Item.App(key)
@@ -96,6 +100,7 @@ data class Layout(
     fun mergeInto(dragKey: String, targetKey: String, newId: () -> String = ::newFolderId): Layout {
         if (dragKey == targetKey) return this
         val dragged = item(dragKey) as? Item.App ?: return this
+        if (dragKey in pinned || targetKey in pinned) return this
         // Nothing joins a locked folder without the parent opening it first.
         if ((item(targetKey) as? Item.Folder)?.locked == true) return this
         val base = without(dragKey)
@@ -127,6 +132,51 @@ data class Layout(
             }
         },
     ).normalize()
+
+    /**
+     * Pins [pkg] at the end of the pinned block: it leaves any favorites row or folder to sit on page 1.
+     * Refused (unchanged) at [MAX_PINNED], or for an app inside a locked folder.
+     */
+    fun pin(pkg: String): Layout {
+        if (pkg in pinned || pinned.size >= MAX_PINNED) return this
+        val inLockedFolder = pages.flatten().any { it is Item.Folder && it.locked && pkg in it.apps }
+        if (inLockedFolder) return this
+        var base = copy(favorites = favorites - pkg)
+        pages.flatten().filterIsInstance<Item.Folder>().firstOrNull { pkg in it.apps }?.let {
+            base = base.removeFromFolder(it.key, pkg)
+        }
+        if (base.pages.flatten().none { it is Item.App && it.pkg == pkg }) {
+            // Not on a page yet (it was in favorites): put it there so it can be pinned in place.
+            base = base.copy(pages = listOf(base.pages[0] + Item.App(pkg)) + base.pages.drop(1))
+        }
+        return base.copy(pinned = pinned + pkg).enforcePinned()
+    }
+
+    /** One alphabetical page of [visible] apps; pins are kept (they're a parent's choice, not the kids'). */
+    fun resetKeepingPins(visible: List<String>): Layout =
+        Layout.stock(visible).copy(pinned = pinned.filter { it in visible }).enforcePinned()
+
+    fun unpin(pkg: String): Layout = copy(pinned = pinned - pkg)
+
+    /**
+     * Puts pinned apps first on page 1, in pinned order. With [reorder] the order is taken from where
+     * they currently sit instead (a parent dragging them), so a drag among them sticks.
+     */
+    fun enforcePinned(reorder: Boolean = false): Layout {
+        if (pinned.isEmpty()) return this
+        val onPages = pages.flatMap { it }.filterIsInstance<Item.App>().mapTo(HashSet()) { it.pkg }
+        val here = pinned.filter { it in onPages }
+        if (here.isEmpty()) return this
+        val flat = pages.flatMap { it }
+        val order = if (reorder) here.sortedBy { p -> flat.indexOfFirst { it is Item.App && it.pkg == p } } else here
+        val front = order.map { Item.App(it) }
+        val hereSet = order.toSet()
+        val stripped = pages.map { page -> page.filterNot { it is Item.App && it.pkg in hereSet } }
+        val withFront = listOf(front + stripped[0]) + stripped.drop(1)
+        val newPinned = order + pinned.filter { it !in hereSet }
+        val next = copy(pages = withFront, pinned = newPinned)
+        return if (next == this) this else next
+    }
 
     fun setFolderLocked(folderKey: String, locked: Boolean): Layout = copy(
         pages = pages.map { page ->
@@ -246,7 +296,7 @@ data class Layout(
             }
         }.ifEmpty { listOf(emptyList()) }
 
-        var result = Layout(kept, favs, newStash)
+        var result = Layout(kept, favs, newStash, pinned.filter { it in installedSet })
         val fresh = visible.filter { it !in seen }
         // In spot order, so apps returning together (Show all) don't shift each other's indexes.
         fresh.filter { it in stash }
@@ -254,7 +304,7 @@ data class Layout(
             .forEach { result = result.restore(it, stash.getValue(it)) }
         val rest = fresh.filter { it !in stash }.map { Item.App(it) }
         val pages = result.pages.dropLast(1) + listOf(result.pages.last() + rest)
-        return result.copy(pages = pages).normalize()
+        return result.copy(pages = pages).normalize().enforcePinned()
     }
 
     private fun layoutPackages(): List<String> =
@@ -302,6 +352,7 @@ data class Layout(
     fun toJson(): String = JSONObject().apply {
         put("pages", JSONArray(pages.map { page -> JSONArray(page.map { it.toJson() }) }))
         put("fav", JSONArray(favorites))
+        if (pinned.isNotEmpty()) put("pin", JSONArray(pinned))
         put(
             "stash",
             JSONObject().also { o ->
@@ -342,7 +393,8 @@ data class Layout(
                     }
                 }
             } ?: emptyMap()
-            Layout(pages.ifEmpty { listOf(emptyList()) }, favs, stash)
+            val pins = root.optJSONArray("pin")?.let { arr -> List(arr.length()) { arr.getString(it) } } ?: emptyList()
+            Layout(pages.ifEmpty { listOf(emptyList()) }, favs, stash, pins)
         } catch (e: JSONException) {
             null
         }
