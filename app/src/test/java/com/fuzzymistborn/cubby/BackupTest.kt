@@ -23,4 +23,17 @@ class BackupTest {
     fun unknownBackgroundNamesFallBackToSystem() {
         assertEquals(HomeBackground.SYSTEM, HomeBackground.fromName("NOPE"))
     }
+
+    @Test
+    fun wifiOnlyAppsSurviveARoundTrip() {
+        val b = Backup(layout, emptySet(), false, false, false, wifiOnly = setOf("a"))
+        assertEquals(b, Backup.fromJson(b.toJson()))
+    }
+
+    @Test
+    fun olderBackupsWithoutWifiOnlyLoadEmpty() {
+        val json = org.json.JSONObject(Backup(layout, emptySet(), false, false, false).toJson())
+        json.remove("wifiOnly")
+        assertEquals(emptySet<String>(), Backup.fromJson(json.toString())?.wifiOnly)
+    }
 }

@@ -73,6 +73,7 @@ private enum class PinDialogMode { SET_FIRST, VERIFY, CHANGE, ACTION }
 
 /** Package broadcasts come in bursts (an update is several); wait for quiet before reloading. */
 private const val RELOAD_DEBOUNCE_MS = 400L
+private const val WIFI_LOSS_DEBOUNCE_MS = 3000L
 
 @Composable
 fun LauncherRoot(
@@ -88,6 +89,10 @@ fun LauncherRoot(
     var reloadTick by remember { mutableIntStateOf(0) }
     var hidden by remember { mutableStateOf(prefs.hiddenApps) }
     var tempAllowed by remember { mutableStateOf(prefs.tempAllowed) }
+    var wifiOnly by remember { mutableStateOf(prefs.wifiOnlyApps) }
+    var wifiRaw by remember { mutableStateOf(wifiConnected(context)) }
+    // Going offline is debounced so a brief dropout doesn't reshuffle the home screen.
+    var wifi by remember { mutableStateOf(wifiRaw) }
     var layoutLocked by remember { mutableStateOf(prefs.layoutLocked) }
     var favoritesEnabled by remember { mutableStateOf(prefs.favoritesEnabled) }
     var hideNewApps by remember { mutableStateOf(prefs.hideNewApps) }
@@ -115,7 +120,9 @@ fun LauncherRoot(
     val currentLeave by rememberUpdatedState(leaveCount)
 
     val allApps = apps.orEmpty()
-    val visibleApps = remember(apps, hidden) { allApps.filter { it.packageName !in hidden } }
+    // The parent's hidden set plus Wi-Fi-only apps while offline. The parent screen shows `hidden`.
+    val effectiveHidden = remember(hidden, wifiOnly, wifi) { if (wifi) hidden else hidden + wifiOnly }
+    val visibleApps = remember(apps, effectiveHidden) { allApps.filter { it.packageName !in effectiveHidden } }
     val allPkgs = remember(apps) { allApps.map { it.packageName } }
     val visiblePkgs = remember(visibleApps) { visibleApps.map { it.packageName } }
 
@@ -132,7 +139,7 @@ fun LauncherRoot(
         if (uri == null) return@rememberLauncherForActivityResult
         val json = Backup(
             layout, hidden, layoutLocked, favoritesEnabled, hideNewApps,
-            searchEnabled, tileColor.name, background.name,
+            searchEnabled, tileColor.name, background.name, wifiOnly,
         ).toJson()
         scope.launch {
             val ok = withContext(Dispatchers.IO) {
@@ -208,12 +215,21 @@ fun LauncherRoot(
     }
 
     // Fold newly installed, removed, hidden or unhidden apps into the saved arrangement.
-    LaunchedEffect(allPkgs, hidden, favoritesEnabled) {
+    LaunchedEffect(allPkgs, effectiveHidden, favoritesEnabled) {
         // Nothing loaded yet (or an implausible empty list): don't reconcile against it.
         if (allPkgs.isEmpty()) return@LaunchedEffect
-        var next = layout.reconcile(allPkgs, hidden)
+        var next = layout.reconcile(allPkgs, effectiveHidden)
         if (!favoritesEnabled) next = next.foldFavorites()
         if (next != layout) saveLayout(next)
+    }
+
+    DisposableEffect(context) {
+        val stop = watchWifi(context) { wifiRaw = it }
+        onDispose(stop)
+    }
+    LaunchedEffect(wifiRaw) {
+        if (!wifiRaw) delay(WIFI_LOSS_DEBOUNCE_MS)
+        wifi = wifiRaw
     }
 
     // Guesses are recorded while the kid view is showing; pick them up when the parent screen opens.
@@ -381,6 +397,11 @@ fun LauncherRoot(
                     onPickerOpen(true)
                     importPicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
                 },
+                wifiOnly = wifiOnly,
+                onToggleWifiOnly = { pkg ->
+                    wifiOnly = if (pkg in wifiOnly) wifiOnly - pkg else wifiOnly + pkg
+                    prefs.wifiOnlyApps = wifiOnly
+                },
                 tempAllowed = tempAllowed,
                 onAllowUntil = { pkg, until ->
                     hidden = hidden - pkg
@@ -447,6 +468,8 @@ fun LauncherRoot(
                     background = HomeBackground.fromName(b.background)
                         .takeIf { it != HomeBackground.PHOTO || hasBackgroundPhoto(context) } ?: HomeBackground.SYSTEM
                     pending = emptySet()
+                    wifiOnly = b.wifiOnly
+                    prefs.wifiOnlyApps = wifiOnly
                     tempAllowed = emptyMap()
                     prefs.tempAllowed = tempAllowed
                     prefs.hiddenApps = hidden
@@ -458,7 +481,7 @@ fun LauncherRoot(
                     prefs.background = background.name
                     prefs.pendingApps = pending
                     // Apps in the backup that aren't installed here wait in the stash.
-                    var next = b.layout.reconcile(allPkgs, b.hidden)
+                    var next = b.layout.reconcile(allPkgs, if (wifi) b.hidden else b.hidden + b.wifiOnly)
                     if (!b.favoritesEnabled) next = next.foldFavorites()
                     saveLayout(next)
                     Toast.makeText(context, "Backup restored", Toast.LENGTH_SHORT).show()
@@ -598,6 +621,8 @@ private fun ParentScreen(
     onResetLayout: () -> Unit,
     onExport: () -> Unit,
     onImport: () -> Unit,
+    wifiOnly: Set<String>,
+    onToggleWifiOnly: (String) -> Unit,
     tempAllowed: Map<String, Long>,
     onAllowUntil: (String, Long) -> Unit,
     onSetVisible: (Set<String>, Boolean) -> Unit,
@@ -770,6 +795,10 @@ private fun ParentScreen(
                     Text(app.label, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (app.packageName in pending) {
                         Text("New", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                    }
+                    val isWifiOnly = app.packageName in wifiOnly
+                    TextButton(onClick = { onToggleWifiOnly(app.packageName) }) {
+                        Text(if (isWifiOnly) "Wi-Fi only ✓" else "Wi-Fi only")
                     }
                     val until = tempAllowed[app.packageName]
                     if (until != null) {

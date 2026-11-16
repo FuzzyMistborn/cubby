@@ -15,6 +15,8 @@ data class Backup(
     val tileColor: String = "WHITE",
     /** A [HomeBackground] name; the photo itself isn't backed up. */
     val background: String = "SYSTEM",
+    /** Apps hidden while the tablet is off Wi-Fi. */
+    val wifiOnly: Set<String> = emptySet(),
 ) {
     fun toJson(): String = JSONObject()
         .put("app", "cubby")
@@ -27,6 +29,7 @@ data class Backup(
         .put("searchEnabled", searchEnabled)
         .put("tileColor", tileColor)
         .put("background", background)
+        .put("wifiOnly", JSONArray(wifiOnly.sorted()))
         .toString(2)
 
     companion object {
@@ -39,6 +42,7 @@ data class Backup(
                 null
             } else {
                 val h = o.getJSONArray("hidden")
+                val w = o.optJSONArray("wifiOnly")
                 Backup(
                     layout = Layout.fromJson(o.getJSONObject("layout").toString()) ?: return null,
                     hidden = List(h.length()) { h.getString(it) }.toSet(),
@@ -48,6 +52,7 @@ data class Backup(
                     searchEnabled = o.optBoolean("searchEnabled", true),
                     tileColor = o.optString("tileColor", "WHITE"),
                     background = o.optString("background", "SYSTEM"),
+                    wifiOnly = if (w == null) emptySet() else List(w.length()) { w.getString(it) }.toSet(),
                 )
             }
         } catch (e: JSONException) {
