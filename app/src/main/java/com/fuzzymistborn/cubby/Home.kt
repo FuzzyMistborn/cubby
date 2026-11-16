@@ -2,6 +2,7 @@ package com.fuzzymistborn.cubby
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -59,6 +61,8 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToUp
@@ -90,9 +94,19 @@ private const val NO_PAGE = -1
 /** Touch size of one dock icon. */
 private val DOCK_SLOT = 88.dp
 
-/** Fixed tile size: icon, two label lines and padding. Rows and columns are however many fit. */
-private val MIN_TILE_HEIGHT = 172.dp
+/**
+ * Tile size: icon, two label lines and padding. Tiles are never taller than [MAX_TILE_HEIGHT] (kids
+ * found stretched tiles ugly), but shrink down to [MIN_TILE_HEIGHT] so [LANDSCAPE_ROWS] rows always
+ * fit in landscape, whatever else (search bar, dock) is on screen.
+ */
+private val MAX_TILE_HEIGHT = 172.dp
+private val MIN_TILE_HEIGHT = 128.dp
+private const val LANDSCAPE_ROWS = 3
 private val TILE_ICON = 88.dp
+private val MIN_TILE_ICON = 48.dp
+
+/** Tile height not available to the icon: padding, gap above the label and two label lines. */
+private val TILE_CHROME = 78.dp
 private val MIN_TILE_WIDTH = 150.dp
 private val TILE_GAP = 12.dp
 private val GRID_TOP_PADDING = 12.dp
@@ -100,6 +114,9 @@ private val GRID_BOTTOM_PADDING = 4.dp
 
 /** Height of the bottom bar, fixed so entering edit mode never changes how many tiles fit. */
 private val BOTTOM_BAR_HEIGHT = 56.dp
+
+/** Height of the search slot above the grid (only reserved while the search button is on). */
+private val SEARCH_BAR_HEIGHT = 48.dp
 
 private const val ZONE_PAGES = "zone:pages"
 private const val ZONE_FAVORITES = "zone:favorites"
@@ -121,12 +138,15 @@ private class LayoutHolder(var value: Layout) {
     var fromParent: Layout = value
 }
 
-/** How a page's grid is laid out: tiles per row, tile height, and how many fit. */
-private class GridSpec(val columns: Int, val rows: Int, val tileHeight: Dp) {
+/** How a page's grid is laid out: tiles per row, tile height, icon size, and how many fit. */
+private class GridSpec(val columns: Int, val rows: Int, val tileHeight: Dp, val iconSize: Dp) {
     val capacity get() = columns * rows
 }
 
-/** Fits as many fixed-size tiles as the pager has room for (at least one); spare room stays empty. */
+/**
+ * Landscape gets [LANDSCAPE_ROWS] rows with the tile height (and icon) shrunk to fit; portrait fits as
+ * many full-height tiles as there is room for. Either way at least one row; spare room stays empty.
+ */
 private fun gridSpec(size: IntSize, density: Density): GridSpec? {
     if (size.width <= 0 || size.height <= 0) return null
     with(density) {
@@ -134,8 +154,12 @@ private fun gridSpec(size: IntSize, density: Density): GridSpec? {
         val width = size.width - 2 * GRID_SIDE_PADDING.toPx()
         val height = size.height - GRID_TOP_PADDING.toPx() - GRID_BOTTOM_PADDING.toPx()
         val columns = ((width + gap) / (MIN_TILE_WIDTH.toPx() + gap)).toInt().coerceAtLeast(1)
-        val rows = ((height + gap) / (MIN_TILE_HEIGHT.toPx() + gap)).toInt().coerceAtLeast(1)
-        return GridSpec(columns, rows, MIN_TILE_HEIGHT)
+        fun fit(tile: Dp) = ((height + gap) / (tile.toPx() + gap)).toInt().coerceAtLeast(1)
+        val landscape = size.width > size.height
+        val rows = if (landscape) minOf(LANDSCAPE_ROWS, fit(MIN_TILE_HEIGHT)) else fit(MAX_TILE_HEIGHT)
+        val tile = ((height - (rows - 1) * gap) / rows).toDp().coerceIn(MIN_TILE_HEIGHT, MAX_TILE_HEIGHT)
+        val icon = (tile - TILE_CHROME).coerceIn(MIN_TILE_ICON, TILE_ICON)
+        return GridSpec(columns, rows, tile, icon)
     }
 }
 
@@ -452,6 +476,12 @@ fun HomeScreen(
             },
     ) {
         Column(Modifier.fillMaxSize()) {
+            if (searchEnabled) {
+                // The slot is reserved even while editing, so entering edit mode never changes the capacity.
+                Box(Modifier.fillMaxWidth().height(SEARCH_BAR_HEIGHT), contentAlignment = Alignment.Center) {
+                    if (!editing) SearchPill(onClick = { searching = true })
+                }
+            }
             HorizontalPager(
                 state = pager,
                 userScrollEnabled = drag == null,
@@ -478,12 +508,12 @@ fun HomeScreen(
                         ItemTile(
                             item = item,
                             byPkg = byPkg,
-                            iconSize = TILE_ICON,
+                            iconSize = grid?.iconSize ?: TILE_ICON,
                             highlight = item.key == mergeTarget,
                             tileColor = tileColor.color,
                             modifier = Modifier
                                 .animateItem()
-                                .height(grid?.tileHeight ?: MIN_TILE_HEIGHT)
+                                .height(grid?.tileHeight ?: MAX_TILE_HEIGHT)
                                 .then(trackBounds(tracked, item.key, page))
                                 .alpha(if (item.key == draggedKey) 0f else 1f),
                             onClick = { onTap(item) },
@@ -570,9 +600,6 @@ fun HomeScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         val ctx = LocalContext.current
-                        if (searchEnabled) {
-                            OutlinedButton(onClick = { searching = true }) { Text("Search", color = Color.White) }
-                        }
                         Text(
                             "Parents",
                             color = Color.White.copy(alpha = 0.5f),
@@ -616,7 +643,7 @@ fun HomeScreen(
                 ItemTile(
                     item = item,
                     byPkg = byPkg,
-                    iconSize = TILE_ICON,
+                    iconSize = grid?.iconSize ?: TILE_ICON,
                     highlight = false,
                     tileColor = tileColor.color,
                     modifier = Modifier
@@ -696,6 +723,33 @@ fun HomeScreen(
             },
             dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Cancel") } },
         )
+    }
+}
+
+/** A wide, rounded bar with a magnifier, like the search bar on a phone home screen. */
+@Composable
+private fun SearchPill(onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth(0.5f)
+            .widthIn(max = 520.dp)
+            .height(SEARCH_BAR_HEIGHT - 8.dp)
+            .clip(RoundedCornerShape(50))
+            .background(Color.White.copy(alpha = 0.22f))
+            .clickable(onClick = onClick)
+            .semantics { contentDescription = "Search apps" }
+            .padding(horizontal = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Canvas(Modifier.size(24.dp)) {
+            val stroke = 3.dp.toPx()
+            val r = size.width * 0.34f
+            drawCircle(Color.White, radius = r, center = Offset(r + stroke, r + stroke), style = Stroke(stroke))
+            val from = Offset(r * 1.7f + stroke, r * 1.7f + stroke)
+            drawLine(Color.White, from, Offset(size.width - stroke, size.height - stroke), stroke, StrokeCap.Round)
+        }
+        Text("Search apps", color = Color.White, style = MaterialTheme.typography.titleMedium)
     }
 }
 

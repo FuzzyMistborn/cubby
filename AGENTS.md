@@ -97,17 +97,21 @@ Family Link does enforcement; this app is only the friendly layer. See README.md
   tile's middle, then the grid animation slides the other tile back under the finger and the two
   swap forever. Keep the rim dwell and the "block the tile we just swapped with until the finger
   leaves it" rule.
-- Pages never scroll. `gridSpec` fits fixed-size tiles (`MIN_TILE_HEIGHT`, no stretching; kids found
-  stretched tall tiles ugly) into the pager's measured size, and `Layout.paginate(capacity)` spills
+- Pages never scroll. `gridSpec` sizes tiles into the pager's measured size: landscape always gets
+  `LANDSCAPE_ROWS` (3) rows, shrinking the tile (and icon) down to `MIN_TILE_HEIGHT` to fit whatever
+  else is on screen (search bar, dock); portrait fits as many `MAX_TILE_HEIGHT` tiles as there is room
+  for. Tiles never grow past `MAX_TILE_HEIGHT` (kids found stretched tall tiles ugly). `Layout.paginate(capacity)` spills
   overflow onto the front of the next page. `applyLayout` always paginates. Shrinking capacity
   pushes items forward; when it grows (rotation, dock off) `Layout.expand(from, to)` undoes that: only
   pages holding exactly the old capacity (spill-filled) pull items forward, so a child's deliberate
   short page stays put. `HomeScreen` keeps the last capacity in `rememberSaveable` (a rotation
   recreates the activity) and never expands on a fresh launch (last capacity 0).
-- The edit toolbar (hint, Reset, Done) lives in the fixed-height bottom bar and the dock slot is
-  always reserved when favorites are on, so entering edit mode never changes the capacity. Keep it
-  that way, or items would reshuffle under the child's finger. Dragging onto a full page is refused
-  (`room` check in the ticker) because paginate would push the item straight back out.
+- The edit toolbar (hint, Reset, Done) lives in the fixed-height bottom bar and the search slot is
+  reserved while the search bar is on, so entering edit mode never changes the capacity. The dock slot is
+  always reserved when favorites are on (the empty dock only shows in edit mode). Hiding an empty
+  dock and toggling favorites with a star badge on each tile were both tried and rejected; keep the
+  dock always showing and favorites added by dragging. Keep capacity stable, or items would reshuffle
+  under the child's finger. Dragging onto a full page is refused (`room` check in the ticker) because paginate would push the item straight back out.
 - Locked folders (`Item.Folder.locked`, saved in layout JSON and so in backups): tapping one asks for the
   parent PIN (`PinDialogMode.ACTION`, a one-off check that does not start the parent grace window).
   Lock is set from the folder dialog in edit mode (PIN first); "Remove lock" shows once it is open.
@@ -139,6 +143,8 @@ Family Link does enforcement; this app is only the friendly layer. See README.md
   It is a compact centered pill of bare icons (`DockIcon`, `DOCK_SLOT` 88dp, labels only as
   content descriptions), not a full-width row: a full-width labeled row took ~170dp and squeezed
   the grid. Keep it small. Its bounds are the `ZONE_FAVORITES` drop zone; `dockActive` brightens
-  it while a drag is over it.
+  it while a drag is over it.- Search is a wide pill (`SearchPill`) in a slot above the grid, not a bottom-bar button: the bottom
+  right is the hardest corner for small children to reach. Drawn with a Canvas magnifier; the project
+  has no icons library.
 - Prefer a short dwell and clear visual feedback (yellow highlight) over precise gestures; users are
   small children.
