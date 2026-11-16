@@ -13,6 +13,8 @@ data class Backup(
     val hideNewApps: Boolean,
     val searchEnabled: Boolean = true,
     val tileColor: String = "WHITE",
+    /** A [HomeBackground] name; the photo itself isn't backed up. */
+    val background: String = "SYSTEM",
 ) {
     fun toJson(): String = JSONObject()
         .put("app", "cubby")
@@ -24,6 +26,7 @@ data class Backup(
         .put("hideNewApps", hideNewApps)
         .put("searchEnabled", searchEnabled)
         .put("tileColor", tileColor)
+        .put("background", background)
         .toString(2)
 
     companion object {
@@ -44,6 +47,7 @@ data class Backup(
                     hideNewApps = o.optBoolean("hideNewApps", false),
                     searchEnabled = o.optBoolean("searchEnabled", true),
                     tileColor = o.optString("tileColor", "WHITE"),
+                    background = o.optString("background", "SYSTEM"),
                 )
             }
         } catch (e: JSONException) {

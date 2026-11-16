@@ -52,6 +52,11 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_TILE_COLOR, null) ?: TileColor.WHITE.name
         set(value) = sp.edit().putString(KEY_TILE_COLOR, value).apply()
 
+    /** Name of a [HomeBackground]; unknown or missing means the system wallpaper. */
+    var background: String
+        get() = sp.getString(KEY_BACKGROUND, null) ?: HomeBackground.SYSTEM.name
+        set(value) = sp.edit().putString(KEY_BACKGROUND, value).apply()
+
     /** False until a parent has seen the welcome note on the parent screen. */
     var onboardingDone: Boolean
         get() = sp.getBoolean(KEY_ONBOARDED, false)
@@ -187,6 +192,7 @@ class Prefs(context: Context) {
         const val KEY_FAVORITES = "favorites_enabled"
         const val KEY_SEARCH = "search_enabled"
         const val KEY_TILE_COLOR = "tile_color"
+        const val KEY_BACKGROUND = "background"
         const val KEY_ONBOARDED = "onboarding_done"
         const val KEY_HIDE_NEW = "hide_new_apps"
         const val KEY_KNOWN = "known_apps"
