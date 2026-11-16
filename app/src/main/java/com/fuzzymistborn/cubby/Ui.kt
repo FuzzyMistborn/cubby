@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -87,6 +89,12 @@ fun LauncherRoot(
     var hideNewApps by remember { mutableStateOf(prefs.hideNewApps) }
     var searchEnabled by remember { mutableStateOf(prefs.searchEnabled) }
     var tileColor by remember { mutableStateOf(TileColor.fromName(prefs.tileColor)) }
+    var background by remember {
+        val saved = HomeBackground.fromName(prefs.background)
+        mutableStateOf(if (saved == HomeBackground.PHOTO && !hasBackgroundPhoto(context)) HomeBackground.SYSTEM else saved)
+    }
+    var photo by remember { mutableStateOf<ImageBitmap?>(null) }
+    var photoVersion by remember { mutableIntStateOf(0) }
     var parentTimeout by remember { mutableIntStateOf(prefs.parentTimeoutMinutes) }
     var onboarding by remember { mutableStateOf(!prefs.onboardingDone) }
     var pending by remember { mutableStateOf(prefs.pendingApps) }
@@ -117,7 +125,7 @@ fun LauncherRoot(
         if (uri == null) return@rememberLauncherForActivityResult
         val json = Backup(
             layout, hidden, layoutLocked, favoritesEnabled, hideNewApps,
-            searchEnabled, tileColor.name,
+            searchEnabled, tileColor.name, background.name,
         ).toJson()
         scope.launch {
             val ok = withContext(Dispatchers.IO) {
@@ -142,6 +150,27 @@ fun LauncherRoot(
             } else {
                 pendingImport = backup
             }
+        }
+    }
+
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        onPickerOpen(false)
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            if (withContext(Dispatchers.IO) { saveBackgroundPhoto(context, uri) }) {
+                background = HomeBackground.PHOTO
+                prefs.background = background.name
+                photoVersion++
+            } else {
+                Toast.makeText(context, "Couldn't use that picture", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    LaunchedEffect(background, photoVersion) {
+        photo = if (background == HomeBackground.PHOTO) {
+            withContext(Dispatchers.IO) { loadBackgroundPhoto(context) }
+        } else {
+            null
         }
     }
 
@@ -229,6 +258,8 @@ fun LauncherRoot(
                 favoritesEnabled = favoritesEnabled,
                 locked = layoutLocked,
                 tileColor = tileColor,
+                background = background,
+                photo = photo,
                 searchEnabled = searchEnabled,
                 resetKey = leaveCount,
                 onLayoutChange = ::saveLayout,
@@ -256,6 +287,15 @@ fun LauncherRoot(
                 onTileColorChange = {
                     tileColor = it
                     prefs.tileColor = it.name
+                },
+                background = background,
+                onBackgroundChange = {
+                    background = it
+                    prefs.background = it.name
+                },
+                onPickPhoto = {
+                    onPickerOpen(true)
+                    photoPicker.launch(arrayOf("image/*"))
                 },
                 parentTimeout = parentTimeout,
                 onParentTimeoutChange = {
@@ -318,6 +358,8 @@ fun LauncherRoot(
                     hideNewApps = b.hideNewApps
                     searchEnabled = b.searchEnabled
                     tileColor = TileColor.fromName(b.tileColor)
+                    background = HomeBackground.fromName(b.background)
+                        .takeIf { it != HomeBackground.PHOTO || hasBackgroundPhoto(context) } ?: HomeBackground.SYSTEM
                     pending = emptySet()
                     prefs.hiddenApps = hidden
                     prefs.layoutLocked = layoutLocked
@@ -325,6 +367,7 @@ fun LauncherRoot(
                     prefs.hideNewApps = hideNewApps
                     prefs.searchEnabled = searchEnabled
                     prefs.tileColor = tileColor.name
+                    prefs.background = background.name
                     prefs.pendingApps = pending
                     // Apps in the backup that aren't installed here wait in the stash.
                     var next = b.layout.reconcile(allPkgs, b.hidden)
@@ -453,6 +496,9 @@ private fun ParentScreen(
     onSearchEnabledChange: (Boolean) -> Unit,
     tileColor: TileColor,
     onTileColorChange: (TileColor) -> Unit,
+    background: HomeBackground,
+    onBackgroundChange: (HomeBackground) -> Unit,
+    onPickPhoto: () -> Unit,
     parentTimeout: Int,
     onParentTimeoutChange: (Int) -> Unit,
     hideNewApps: Boolean,
@@ -535,6 +581,41 @@ private fun ParentScreen(
                                     )
                                     .clickable(onClickLabel = option.label) { onTileColorChange(option) },
                             )
+                        }
+                    }
+                    Row(
+                        Modifier.padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text("Background", modifier = Modifier.padding(end = 4.dp))
+                        HomeBackground.entries.filter { it != HomeBackground.PHOTO }.forEach { option ->
+                            Box(
+                                Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .then(
+                                        if (option.colors.isEmpty()) {
+                                            Modifier.background(Color(0xFFE0E0E0))
+                                        } else {
+                                            Modifier.background(Brush.verticalGradient(option.colors))
+                                        },
+                                    )
+                                    .border(
+                                        width = if (option == background) 3.dp else 1.dp,
+                                        color = if (option == background) MaterialTheme.colorScheme.primary else Color.Gray,
+                                        shape = CircleShape,
+                                    )
+                                    .clickable(onClickLabel = option.label) { onBackgroundChange(option) },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (option == HomeBackground.SYSTEM) Text("W", color = Color.DarkGray)
+                            }
+                        }
+                        if (background == HomeBackground.PHOTO) {
+                            Button(onClick = onPickPhoto) { Text("Photo…") }
+                        } else {
+                            OutlinedButton(onClick = onPickPhoto) { Text("Photo…") }
                         }
                     }
                     Row(

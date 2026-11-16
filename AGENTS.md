@@ -24,6 +24,9 @@ Family Link does enforcement; this app is only the friendly layer. See README.md
 - `HomeExtras.kt`: `SearchDialog` and the `TileColor` presets (a clock/date was tried and removed on
   purpose; don't re-add it). `foldNewApps` (in `Layout.kt`) implements "hide new apps
   until approved" using `Prefs.knownApps`/`pendingApps`.
+- `Background.kt`: `HomeBackground` (system wallpaper, gradient presets, `PHOTO`) and the photo store
+  (`filesDir/home_background.jpg`, downscaled to 2048px). Backups carry only the name; a restored `PHOTO`
+  with no file falls back to the system wallpaper.
 - `MainActivity.kt`: starts the parent grace window in `changeScreen` (the moment the parent leaves, not from a
   composition effect, which can be deferred while hidden). Skips the stop-reset while a backup/restore file
   picker is open (`pickerOpen`), so those flows stay on the parent screen. Bumps `leaveCount` on stop/new intent; `LauncherRoot` and `HomeScreen` use it to

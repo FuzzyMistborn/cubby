@@ -58,6 +58,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToUp
@@ -173,6 +174,8 @@ fun HomeScreen(
     favoritesEnabled: Boolean,
     locked: Boolean,
     tileColor: TileColor,
+    background: HomeBackground,
+    photo: ImageBitmap?,
     searchEnabled: Boolean,
     resetKey: Int,
     onLayoutChange: (Layout) -> Unit,
@@ -387,6 +390,7 @@ fun HomeScreen(
     Box(
         Modifier
             .fillMaxSize()
+            .homeBackground(background, photo)
             .systemBarsPadding()
             .onGloballyPositioned {
                 origin = it.positionInWindow()

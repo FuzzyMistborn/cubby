@@ -33,6 +33,7 @@ Minimum Android version is 10 (API 29).
 - Optional dock: a compact pill of up to 6 favorite apps at the bottom that apps can be dragged into.
 - Optional Search button to find apps by name.
 - Tile color presets (white, sky, mint, peach, lavender).
+- Home backgrounds: the system wallpaper (default), gradient presets, or a photo a parent picks.
 
 **For parents** (long-press the faint "Parents" text at the bottom right, then enter the PIN)
 - Choose which apps the kids can see; show all / hide all, with search.
