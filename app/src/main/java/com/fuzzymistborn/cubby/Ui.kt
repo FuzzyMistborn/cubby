@@ -64,7 +64,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private enum class PinDialogMode { SET_FIRST, VERIFY, CHANGE }
+private enum class PinDialogMode { SET_FIRST, VERIFY, CHANGE, ACTION }
 
 /** Package broadcasts come in bursts (an update is several); wait for quiet before reloading. */
 private const val RELOAD_DEBOUNCE_MS = 400L
@@ -94,6 +94,8 @@ fun LauncherRoot(
     var pinDialog by remember { mutableStateOf<PinDialogMode?>(null) }
     var hasPin by remember { mutableStateOf(prefs.hasPin()) }
     var pinBusy by remember { mutableStateOf(false) }
+    // What to do once the PIN is right, for the kid view's locked folders (ACTION mode).
+    var pinAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     // Read by PIN coroutines that may outlive the screen they started on.
     val currentLeave by rememberUpdatedState(leaveCount)
 
@@ -181,6 +183,7 @@ fun LauncherRoot(
     // Leaving the launcher closes any half-finished PIN dialog.
     LaunchedEffect(leaveCount) {
         pinDialog = null
+        pinAction = null
         pendingImport = null
     }
 
@@ -231,6 +234,10 @@ fun LauncherRoot(
                 onLayoutChange = ::saveLayout,
                 onResetLayout = { saveLayout(Layout.stock(visiblePkgs)) },
                 onLaunch = { launchApp(context, it) },
+                onRequestPin = { action ->
+                    pinAction = action
+                    pinDialog = PinDialogMode.ACTION
+                },
                 onParent = {
                     if (prefs.parentUnlocked()) onScreenChange(Screen.PARENT) else pinDialog = PinDialogMode.VERIFY
                 },
@@ -369,22 +376,36 @@ fun LauncherRoot(
                 PinDialogMode.SET_FIRST -> "Create a parent PIN to finish setup"
                 PinDialogMode.VERIFY -> "Enter parent PIN"
                 PinDialogMode.CHANGE -> "Choose a new PIN"
+                PinDialogMode.ACTION -> "Enter parent PIN"
             },
             error = error,
             cancellable = mode != PinDialogMode.SET_FIRST,
-            onDismiss = { pinDialog = null },
+            onDismiss = {
+                pinDialog = null
+                pinAction = null
+            },
             onSubmit = submit@{ pin ->
                 if (pinBusy) return@submit
                 when (mode) {
-                    PinDialogMode.VERIFY -> {
+                    PinDialogMode.VERIFY, PinDialogMode.ACTION -> {
                         pinBusy = true
                         val startLeave = currentLeave
+                        val action = pinAction
                         scope.launch {
                             val ok = withContext(Dispatchers.Default) { prefs.verifyPin(pin) }
                             pinBusy = false
                             // Left the launcher while verifying: don't open the parent screen behind it.
                             if (currentLeave != startLeave) return@launch
-                            if (ok) {
+                            // Cancelled (or replaced by another prompt) while verifying: do nothing.
+                            if (mode == PinDialogMode.ACTION && (pinDialog != mode || pinAction !== action)) {
+                                return@launch
+                            }
+                            if (ok && mode == PinDialogMode.ACTION) {
+                                // A one-off check: it must not start the parent screen's grace window.
+                                pinDialog = null
+                                pinAction = null
+                                action?.invoke()
+                            } else if (ok) {
                                 pinDialog = null
                                 prefs.extendParentUnlock()
                                 onScreenChange(Screen.PARENT)

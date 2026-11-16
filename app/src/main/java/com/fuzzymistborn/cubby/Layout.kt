@@ -21,7 +21,13 @@ sealed interface Item {
         override val key: String get() = pkg
     }
 
-    data class Folder(val id: String, val name: String, val apps: List<String>) : Item {
+    /** A [locked] folder asks for the parent PIN before it opens. */
+    data class Folder(
+        val id: String,
+        val name: String,
+        val apps: List<String>,
+        val locked: Boolean = false,
+    ) : Item {
         override val key: String get() = FOLDER_PREFIX + id
     }
 }
@@ -90,6 +96,8 @@ data class Layout(
     fun mergeInto(dragKey: String, targetKey: String, newId: () -> String = ::newFolderId): Layout {
         if (dragKey == targetKey) return this
         val dragged = item(dragKey) as? Item.App ?: return this
+        // Nothing joins a locked folder without the parent opening it first.
+        if ((item(targetKey) as? Item.Folder)?.locked == true) return this
         val base = without(dragKey)
         var merged = false
         val pages = base.pages.map { page ->
@@ -120,6 +128,16 @@ data class Layout(
         },
     ).normalize()
 
+    fun setFolderLocked(folderKey: String, locked: Boolean): Layout = copy(
+        pages = pages.map { page ->
+            page.map { if (it is Item.Folder && it.key == folderKey) it.copy(locked = locked) else it }
+        },
+    )
+
+    /** Packages inside locked folders: kept out of search so the lock can't be walked around. */
+    fun lockedApps(): Set<String> =
+        pages.flatten().filterIsInstance<Item.Folder>().filter { it.locked }.flatMapTo(HashSet()) { it.apps }
+
     fun renameFolder(folderKey: String, name: String): Layout {
         val clean = name.trim().ifEmpty { DEFAULT_FOLDER_NAME }
         return copy(
@@ -139,7 +157,7 @@ data class Layout(
             page.flatMap { item ->
                 when {
                     item is Item.Folder && item.apps.isEmpty() -> emptyList()
-                    item is Item.Folder && item.apps.size == 1 && item.id !in stashed ->
+                    item is Item.Folder && item.apps.size == 1 && item.id !in stashed && !item.locked ->
                         listOf(Item.App(item.apps[0]))
                     else -> listOf(item)
                 }
@@ -335,6 +353,7 @@ data class Layout(
                 id = o.getString("id"),
                 name = o.getString("n"),
                 apps = o.getJSONArray("a").let { arr -> List(arr.length()) { arr.getString(it) } },
+                locked = o.optBoolean("l", false),
             )
 
             else -> throw JSONException("unknown item type")
@@ -344,7 +363,9 @@ data class Layout(
 
 private fun Item.toJson(): JSONObject = when (this) {
     is Item.App -> JSONObject().put("t", "a").put("p", pkg)
-    is Item.Folder -> JSONObject().put("t", "f").put("id", id).put("n", name).put("a", JSONArray(apps))
+    is Item.Folder -> JSONObject().put("t", "f").put("id", id).put("n", name).put("a", JSONArray(apps)).apply {
+        if (locked) put("l", true)
+    }
 }
 
 private fun newFolderId(): String = UUID.randomUUID().toString().take(8)

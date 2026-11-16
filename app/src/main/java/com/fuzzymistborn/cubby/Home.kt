@@ -71,10 +71,13 @@ import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -175,6 +178,7 @@ fun HomeScreen(
     onLayoutChange: (Layout) -> Unit,
     onResetLayout: () -> Unit,
     onLaunch: (String) -> Unit,
+    onRequestPin: (action: () -> Unit) -> Unit,
     onParent: () -> Unit,
 ) {
     val density = LocalDensity.current
@@ -335,7 +339,8 @@ fun HomeScreen(
 
             val rect = tracked.getValue(target).rect
             val middle = rect.deflate(minOf(rect.width, rect.height) * 0.25f)
-            val canMerge = dragged is Item.App && l.pageOf(target) >= 0
+            val canMerge = dragged is Item.App && l.pageOf(target) >= 0 &&
+                (l.item(target) as? Item.Folder)?.locked != true
             if (canMerge && middle.contains(p)) {
                 if (target != hoverKey) {
                     hoverKey = target
@@ -372,6 +377,7 @@ fun HomeScreen(
 
     val onTap: (Item) -> Unit = { item ->
         when {
+            item is Item.Folder && item.locked -> onRequestPin { openFolder = item.key }
             item is Item.Folder -> openFolder = item.key
             editing -> Unit
             item is Item.App -> onLaunch(item.pkg)
@@ -536,7 +542,10 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        OutlinedButton(onClick = { confirmReset = true }) { Text("Reset", color = Color.White) }
+                        // A reset would dissolve locked folders, so it moves to the parent screen.
+                        if (layout.lockedApps().isEmpty()) {
+                            OutlinedButton(onClick = { confirmReset = true }) { Text("Reset", color = Color.White) }
+                        }
                         Button(onClick = { editing = false }) { Text("Done") }
                     }
                 } else {
@@ -628,6 +637,15 @@ fun HomeScreen(
                 canEdit = editing,
                 onRename = { applyLayout(latest.value.renameFolder(folder.key, it)) },
                 onMoveOut = { applyLayout(latest.value.removeFromFolder(folder.key, it)) },
+                onToggleLock = {
+                    if (folder.locked) {
+                        // Opening it already took the PIN.
+                        applyLayout(latest.value.setFolderLocked(folder.key, false))
+                    } else {
+                        openFolder = null
+                        onRequestPin { applyLayout(latest.value.setFolderLocked(folder.key, true)) }
+                    }
+                },
                 onLaunch = {
                     openFolder = null
                     onLaunch(it)
@@ -638,8 +656,9 @@ fun HomeScreen(
     }
 
     if (searching) {
+        val lockedApps = layout.lockedApps()
         SearchDialog(
-            apps = apps,
+            apps = apps.filter { it.packageName !in lockedApps },
             onLaunch = {
                 searching = false
                 onLaunch(it)
@@ -758,6 +777,20 @@ private fun AppIcon(app: AppEntry, size: Dp) {
 @Composable
 private fun FolderIcon(folder: Item.Folder, byPkg: Map<String, AppEntry>, size: Dp) {
     val inner = size / 2 - 4.dp
+    if (folder.locked) {
+        // Don't show what's inside a folder that needs the PIN.
+        Box(
+            Modifier
+                .size(size)
+                .clip(RoundedCornerShape(size / 4))
+                .background(Color(0xFFD9DEE8))
+                .semantics { contentDescription = "Locked folder" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("🔒", fontSize = (size.value / 2).sp)
+        }
+        return
+    }
     Column(
         Modifier
             .size(size)
@@ -781,6 +814,7 @@ private fun FolderDialog(
     canEdit: Boolean,
     onRename: (String) -> Unit,
     onMoveOut: (String) -> Unit,
+    onToggleLock: () -> Unit,
     onLaunch: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -835,5 +869,16 @@ private fun FolderDialog(
             }
         },
         confirmButton = { TextButton(onClick = close) { Text("Done") } },
+        // A locked folder is only open because the PIN was just entered, so unlocking is offered
+        // right here; locking needs edit mode (and asks for the PIN).
+        dismissButton = if (folder.locked || canEdit) {
+            {
+                TextButton(onClick = onToggleLock) {
+                    Text(if (folder.locked) "Remove lock" else "Lock with PIN")
+                }
+            }
+        } else {
+            null
+        },
     )
 }
