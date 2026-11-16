@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import android.content.Intent
 import android.content.IntentFilter
 import android.provider.Settings
+import android.text.format.DateUtils
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -94,6 +95,8 @@ fun LauncherRoot(
     var pinDialog by remember { mutableStateOf<PinDialogMode?>(null) }
     var hasPin by remember { mutableStateOf(prefs.hasPin()) }
     var pinBusy by remember { mutableStateOf(false) }
+    var failedAttempts by remember { mutableIntStateOf(prefs.unseenFailedAttempts) }
+    var lastFailedAt by remember { mutableStateOf(prefs.lastFailedAttemptAt) }
     // What to do once the PIN is right, for the kid view's locked folders (ACTION mode).
     var pinAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     // Read by PIN coroutines that may outlive the screen they started on.
@@ -178,6 +181,14 @@ fun LauncherRoot(
         var next = layout.reconcile(allPkgs, hidden)
         if (!favoritesEnabled) next = next.foldFavorites()
         if (next != layout) saveLayout(next)
+    }
+
+    // Guesses are recorded while the kid view is showing; pick them up when the parent screen opens.
+    LaunchedEffect(screen) {
+        if (screen == Screen.PARENT) {
+            failedAttempts = prefs.unseenFailedAttempts
+            lastFailedAt = prefs.lastFailedAttemptAt
+        }
     }
 
     // Leaving the launcher closes any half-finished PIN dialog.
@@ -291,6 +302,13 @@ fun LauncherRoot(
                     pending = pending - pkgs
                     prefs.hiddenApps = hidden
                     prefs.pendingApps = pending
+                },
+                failedAttempts = failedAttempts,
+                lastFailedAt = lastFailedAt,
+                onDismissAttempts = {
+                    prefs.clearFailedAttempts()
+                    failedAttempts = 0
+                    lastFailedAt = 0L
                 },
                 onChangePin = { pinDialog = PinDialogMode.CHANGE },
                 onSwitchLauncher = {
@@ -465,6 +483,9 @@ private fun ParentScreen(
     onExport: () -> Unit,
     onImport: () -> Unit,
     onSetVisible: (Set<String>, Boolean) -> Unit,
+    failedAttempts: Int,
+    lastFailedAt: Long,
+    onDismissAttempts: () -> Unit,
     onChangePin: () -> Unit,
     onSwitchLauncher: () -> Unit,
     onDone: () -> Unit,
@@ -497,6 +518,24 @@ private fun ParentScreen(
                         Button(onClick = onDone) { Text("Done") }
                         OutlinedButton(onClick = onChangePin) { Text("Change PIN") }
                         OutlinedButton(onClick = onSwitchLauncher) { Text("Switch launcher") }
+                    }
+                    if (failedAttempts > 0) {
+                        val whenText = DateUtils.getRelativeTimeSpanString(
+                            lastFailedAt, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS,
+                        )
+                        Row(
+                            Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                "${if (failedAttempts == 1) "1 wrong PIN try" else "$failedAttempts wrong PIN tries"} " +
+                                    "since you last checked (latest $whenText).",
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = onDismissAttempts) { Text("Dismiss") }
+                        }
                     }
                     SettingSwitch("Lock layout (kids can't rearrange)", layoutLocked, onLayoutLockedChange)
                     SettingSwitch("Show a dock of favorite apps", favoritesEnabled, onFavoritesChange)
