@@ -264,4 +264,15 @@ class LayoutTest {
         val back = hidden.reconcile(listOf("e", "d", "c", "a", "b", "f"))
         assertEquals(apps("a", "b", "c", "d", "e", "f"), back.pages.single())
     }
+
+    @Test
+    fun lockedFolderSurvivesJsonRefusesMergesAndKeepsItsApps() {
+        val l = Layout.stock(abc).mergeInto("a", "b") { "f1" }.setFolderLocked(FOLDER_PREFIX + "f1", true)
+        assertEquals(setOf("a", "b"), l.lockedApps())
+        assertEquals(l, Layout.fromJson(l.toJson()))
+        assertEquals(l, l.mergeInto("c", FOLDER_PREFIX + "f1"))
+        // Removing one app leaves a locked one-app folder rather than exposing the app.
+        val one = l.removeFromFolder(FOLDER_PREFIX + "f1", "a")
+        assertEquals(setOf("b"), one.lockedApps())
+    }
 }

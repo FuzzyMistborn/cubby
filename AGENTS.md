@@ -101,6 +101,11 @@ Family Link does enforcement; this app is only the friendly layer. See README.md
   always reserved when favorites are on, so entering edit mode never changes the capacity. Keep it
   that way, or items would reshuffle under the child's finger. Dragging onto a full page is refused
   (`room` check in the ticker) because paginate would push the item straight back out.
+- Locked folders (`Item.Folder.locked`, saved in layout JSON and so in backups): tapping one asks for the
+  parent PIN (`PinDialogMode.ACTION`, a one-off check that does not start the parent grace window).
+  Lock is set from the folder dialog in edit mode (PIN first); "Remove lock" shows once it is open.
+  Apps in locked folders are filtered out of search, nothing can be dropped into one, a locked
+  one-app folder is not dissolved, and the kid-side Reset button is hidden while any exist.
 - Folders hold apps only (no nesting), favorites hold apps only (max 6). One-app folders dissolve
   and empty pages are removed on drop (`normalize`).
 
